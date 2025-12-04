@@ -1,0 +1,127 @@
+// Pin definitions
+const int mq3Pin = A0;     // Alcohol sensor analog pin
+const int eyePin = 2;      // Eye blink sensor digital pin
+const int buzzerPin = 8;   // Buzzer pin
+
+// Thresholds
+int lowLimit = 150;
+int mediumLimit = 300;
+int highLimit = 450;
+
+// Safety score variable (0 = safe, higher = risky)
+int safetyScore = 0;
+int maxSafetyScore = 100;   // Maximum limit for safety score
+
+// Previous values
+int lastAlcohol = -1;
+int lastEye = -1;
+String lastStatus = "";
+
+// Deadband so small changes do NOT trigger updates
+int alcoholDeadband = 10;  // change must be >10 to update
+
+void setup() {
+  Serial.begin(9600);
+
+  pinMode(mq3Pin, INPUT);
+  pinMode(eyePin, INPUT);
+  pinMode(buzzerPin, OUTPUT);
+
+  Serial.println("System Starting...");
+  delay(5000);
+}
+
+void loop() {
+
+  int alcoholValue = analogRead(mq3Pin);
+  int eyeValue = digitalRead(eyePin);
+  int alcoholPercent = map(alcoholValue, 0, 1023, 0, 100);
+
+  // Status classification
+  String alcoholStatus = "";
+  if (alcoholValue < lowLimit) alcoholStatus = "LOW";
+  else if (alcoholValue < mediumLimit) alcoholStatus = "MEDIUM";
+  else if (alcoholValue < highLimit) alcoholStatus = "HIGH";
+  else alcoholStatus = "VERY HIGH";
+
+  // Safety score logic
+  if (alcoholStatus == "LOW" && eyeValue == HIGH) {
+    safetyScore -= 1;  // decrease score slowly
+  }
+  else if (alcoholStatus == "MEDIUM") {
+    safetyScore += 2;
+  }
+  else if (alcoholStatus == "HIGH") {
+    safetyScore += 5;
+  }
+  else if (alcoholStatus == "VERY HIGH") {
+    safetyScore += 10;
+  }
+
+  // Drowsiness adds risk
+  if (eyeValue == LOW) {
+    safetyScore += 7;
+  }
+
+  // Limit safety score to 0–100
+  if (safetyScore < 0) safetyScore = 0;
+  if (safetyScore > 100) safetyScore = 100;
+
+  // Check if alcohol changed significantly
+  bool alcoholChanged = abs(alcoholValue - lastAlcohol) > alcoholDeadband;
+
+  // Only update if something REALLY changed
+  if (alcoholChanged || eyeValue != lastEye || alcoholStatus != lastStatus) {
+
+    Serial.println("----- UPDATE -----");
+    Serial.print("Alcohol: ");
+    Serial.print(alcoholValue);
+    Serial.print(" (");
+    Serial.print(alcoholPercent);
+    Serial.println("%)");
+
+    Serial.print("Alcohol Status: ");
+    Serial.println(alcoholStatus);
+
+    // Show safety score
+    Serial.print("Safety Score: ");
+    Serial.println(safetyScore);
+
+    // Alerts
+    if (alcoholStatus == "HIGH" || alcoholStatus == "VERY HIGH") {
+      Serial.println("⚠ ALERT: HIGH ALCOHOL LEVEL!");
+      digitalWrite(buzzerPin, HIGH);
+      delay(300);
+      digitalWrite(buzzerPin, LOW);
+    }
+
+    if (eyeValue == LOW) {
+      Serial.println("⚠ ALERT: DROWSINESS DETECTED!");
+      digitalWrite(buzzerPin, HIGH);
+      delay(200);
+      digitalWrite(buzzerPin, LOW);
+    } else {
+      Serial.println("Drowsiness: NOT DETECTED");
+    }
+
+    // Safety score warning levels
+    if (safetyScore >= 70) {
+      Serial.println("⚠⚠ HIGH RISK! DRIVER NOT SAFE!");
+    } 
+    else if (safetyScore >= 40) {
+      Serial.println("⚠ MEDIUM RISK! DRIVE CAREFULLY.");
+    } 
+    else {
+      Serial.println("✔ SAFE DRIVING CONDITIONS.");
+    }
+
+    Serial.println("------------------");
+
+    // Save last values
+    lastAlcohol = alcoholValue;
+    lastEye = eyeValue;
+    lastStatus = alcoholStatus;
+  }
+
+  delay(200);
+}
